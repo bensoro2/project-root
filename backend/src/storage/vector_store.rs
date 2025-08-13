@@ -9,6 +9,7 @@ mod implementation {
     use std::path::PathBuf;
     use bytemuck;
     use std::collections::BinaryHeap;
+use std::cmp::Reverse;
     use ordered_float::NotNan;
 
     #[derive(Debug)]
@@ -53,6 +54,7 @@ mod implementation {
         }
 
         pub fn search(&self, query: &[f32], top_k: usize) -> Result<Vec<(usize, f32)>> {
+            assert!(top_k > 0, "top_k must be > 0");
             assert_eq!(query.len(), self.dim, "query dim mismatch");
             
             let data = std::fs::read(&self.path)
@@ -65,7 +67,7 @@ mod implementation {
             let total_f32: &[f32] = bytemuck::cast_slice(&data);
             let num_vecs = total_f32.len() / self.dim;
             
-            let mut heap: BinaryHeap<(NotNan<f32>, usize)> =
+            let mut heap: BinaryHeap<Reverse<(NotNan<f32>, usize)>> =
                 BinaryHeap::with_capacity(top_k + 1);
                 
             for i in 0..num_vecs {
@@ -79,7 +81,7 @@ mod implementation {
                 }
                 
                 if let Ok(not_nan) = NotNan::new(score) {
-                    heap.push((not_nan, i));
+                    heap.push(Reverse((not_nan, i)));
                     if heap.len() > top_k {
                         heap.pop();
                     }
@@ -87,7 +89,7 @@ mod implementation {
             }
             
             let mut results: Vec<(usize, f32)> = heap.into_iter()
-                .map(|(s, i)| (i, s.into_inner()))
+                .map(|Reverse((s, i))| (i, s.into_inner()))
                 .collect();
             results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             

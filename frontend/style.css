@@ -118,12 +118,18 @@ form {
   margin-bottom: 1.25rem;
 }
 
+/* Base label (floating) */
 label {
-  display: block;
-  margin-bottom: 0.6rem;
-  font-weight: 500;
+  position: absolute;
+  top: 50%;
+  left: 1rem;
+  transform: translateY(-50%);
+  pointer-events: none;
+  background: var(--bg-white);
+  padding: 0 0.25rem;
   color: var(--text-secondary);
   font-size: 0.95rem;
+  transition: var(--transition);
   letter-spacing: 0.1px;
 }
 
@@ -135,7 +141,7 @@ label {
 .form-control input,
 .form-control textarea {
   width: 100%;
-  padding: 0.75rem 1rem;
+  padding: 1.5rem 1rem 0.75rem 1rem; /* extra top padding for label */
   font-size: 1rem;
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius);
@@ -161,10 +167,10 @@ label {
 /* Floating label animation */
 .form-control.focused label,
 .form-control:not(.empty) label {
-  transform: translateY(-1.75rem) scale(0.85);
+  top: -0.6rem;
+  left: 0.75rem;
+  transform: scale(0.85);
   color: var(--primary-color);
-  background-color: var(--bg-white);
-  padding: 0 0.25rem;
 }
 
 /* Button styling with gradient */
