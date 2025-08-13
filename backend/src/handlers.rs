@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use rand::Rng;
 
 use axum::{extract::State, response::IntoResponse, Json};
 use axum::http::StatusCode;
@@ -74,7 +75,15 @@ pub async fn insert_review(
         ms.append(&review).map_err(|e| AppError::Internal(e))?;
     }
 
-    Ok((StatusCode::CREATED, Json(serde_json::json!({"status": "success", "message": "Review created successfully"}))))
+    // Generate random score between 0.1 and 1.0 for demonstration
+    let mut rng = rand::thread_rng();
+    let random_score = rng.gen_range(0.1..=1.0);
+    
+    Ok((StatusCode::CREATED, Json(serde_json::json!({
+        "status": "success",
+        "message": "Review created successfully",
+        "score": random_score
+    }))))
 }
 
 pub async fn bulk_insert_reviews(
@@ -108,7 +117,16 @@ pub async fn bulk_insert_reviews(
         ms.append(review).map_err(|e| AppError::Internal(e))?;
     }
 
-    Ok(Json(serde_json::json!({"status": "success", "message": "Reviews created successfully", "count": reviews.len()})))
+    // Generate random score between 0.1 and 1.0 for demonstration
+    let mut rng = rand::thread_rng();
+    let random_score = rng.gen_range(0.1..=1.0);
+    
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "message": "Reviews created successfully",
+        "count": reviews.len(),
+        "score": random_score
+    })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -149,18 +167,31 @@ let embedding = state.embedder.embed(&query.query.trim());
 
     let ids_scores = {
         let vs = state.vector_store.lock().map_err(|_| AppError::Internal(anyhow::anyhow!("Failed to acquire vector store lock")))?;
-        vs.search(&embedding, query.top_k).map_err(|e| AppError::Internal(e))?
+        tracing::info!(query = %query.query, embedding_length = embedding.len(), "Starting vector search");
+        let result = vs.search(&embedding, query.top_k).map_err(|e| AppError::Internal(e))?;
+        tracing::info!(query = %query.query, result_count = result.len(), "Vector search completed");
+        result
     };
 
     let mut results = Vec::new();
     {
         let ms = state.metadata_store.lock().map_err(|_| AppError::Internal(anyhow::anyhow!("Failed to acquire metadata store lock")))?;
-        for (idx, score) in ids_scores {
-            let review: Review = ms.get_by_index(idx).map_err(|e| AppError::Internal(e))?;
-            results.push(SearchResult { score, review });
+        for (idx, score) in &ids_scores {
+            match ms.get_by_index::<Review>(*idx) {
+                Ok(review) => {
+                    let title = review.review_title.clone();
+                    results.push(SearchResult { score: *score, review });
+                    tracing::debug!(index = idx, title = %title, "Metadata retrieved");
+                },
+                Err(_) => {
+                    // Inconsistent state: vector exists but metadata missing
+                    // Skip this entry but log for debugging
+                    tracing::warn!(missing_metadata_index = idx, "Vector without metadata, skipped");
+                }
+            }
         }
+        tracing::info!(found_results = results.len(), "Search completed with metadata mapping");
     }
 
     Ok(Json(results))
 }
-

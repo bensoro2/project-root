@@ -44,8 +44,14 @@ impl Embedder {
             match guard.embed(vec![text], None) {
                 Ok(mut embeddings) => {
                     if let Some(embedding) = embeddings.pop() {
+                        tracing::debug!(embedding_length = embedding.len(), "Embedding generated successfully");
+                        // Debug: Log first few values of embedding
+                        if embedding.len() > 5 {
+                            tracing::debug!(first_values = ?&embedding[0..5], "First few embedding values");
+                        }
                         embedding
                     } else {
+                        tracing::warn!("Empty embedding returned from model");
                         vec![0.0_f32; self.embedding_size]
                     }
                 },
@@ -57,6 +63,7 @@ impl Embedder {
         }
         #[cfg(not(feature = "fastembed"))]
         {
+            tracing::warn!("Using zero embedding (fastembed feature not enabled)");
             vec![0.0_f32; self.embedding_size]
         }
     }

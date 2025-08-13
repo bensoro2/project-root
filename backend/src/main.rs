@@ -1,11 +1,13 @@
 use axum::{routing::post, Router, serve};
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
+use std::env;
 
 mod handlers;
 mod embed;
 mod storage;
 mod error;
+mod bulk_insert;
 
 use handlers::{bulk_insert_reviews, insert_review, search_reviews};
 use storage::{metadata::MetadataStore, vector_store::VectorStore};
@@ -43,7 +45,16 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to bind to address {}: {}", addr, e))?;
     
     tracing::info!("Listening on http://{}", listener.local_addr()?);
+    
+    // Check if we should insert bitcoin tweets
+    if env::args().any(|arg| arg == "--insert-bitcoin-tweets") {
+        tokio::spawn(async {
+            if let Err(e) = bulk_insert::insert_bitcoin_tweets().await {
+                eprintln!("Error inserting bitcoin tweets: {}", e);
+            }
+        });
+    }
+    
     serve(listener, app).await
         .map_err(|e| anyhow::anyhow!("Server error: {}", e))
 }
-

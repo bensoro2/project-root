@@ -29,3 +29,9 @@ Thumbs.db
 
 # Node & npm (if added in future)
 node_modules/
+
+# Kaggle
+kaggle.json
+
+tweets.csv
+

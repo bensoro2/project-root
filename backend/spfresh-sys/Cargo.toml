@@ -1,0 +1,17 @@
+[package]
+name = "spfresh-sys"
+version = "0.1.0"
+edition = "2021"
+description = "Low-level C bindings for SPFresh vector index"
+license = "MIT"
+
+[dependencies]
+libc = "0.2"
+
+[build-dependencies]
+cc = "1.0"
+pkg-config = "0.3"
+
+[[example]]
+name = "raw_bindings"
+path = "examples/raw_bindings.rs"
