@@ -1,0 +1,15 @@
+[package]
+name = "spfresh"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "spfresh"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+libc = "0.2"
+anyhow = "1.0"
+ordered-float = "4.2"
+bytemuck = { version = "1.14", features = ["derive"] }

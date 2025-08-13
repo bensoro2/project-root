@@ -1,0 +1,10 @@
+# Trunk configuration
+
+# Trunk 0.21+ config
+[serve]
+# nothing here; proxy moved to [[proxies]]
+
+# Proxy all /api/* requests to local backend
+[[proxy]]
+backend = "http://localhost:8000"
+rewrite = "/api"

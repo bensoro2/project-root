@@ -1,0 +1,30 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.7", features = ["json"] }
+tokio = { version = "1.37", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+fastembed = { version = "5.0.2", package = "fastembed", default-features = false, features = ["ort-download-binaries", "hf-hub-native-tls"], optional = true }
+ort = { version = "2.0.0-rc.10", default-features = false, features = ["download-binaries"], optional = true }
+bytemuck = { version = "1.14", features = ["derive"] }
+ordered-float = "4.2"
+spfresh = { path = "spfresh", optional = true }
+
+[features]
+# Build with `--features fastembed` to enable real embedding implementation
+fastembed = ["dep:fastembed", "dep:ort"]
+spfresh = ["dep:spfresh"]
+
+default = []
+# TODO: replace with real spfresh binding crate once available
+
+
+
