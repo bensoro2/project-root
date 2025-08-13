@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Semantic search for product reviews" />
     <title>Review Semantic Search</title>
-    <!-- Instruct Trunk to build the Rust crate to WASM -->
     
 <script type="module">
-import init, * as bindings from '/frontend-f9935cac133eada.js';
-const wasm = await init({ module_or_path: '/frontend-f9935cac133eada_bg.wasm' });
+import init, * as bindings from '/frontend-9ab983be637bbc5.js';
+const wasm = await init({ module_or_path: '/frontend-9ab983be637bbc5_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -17,11 +17,10 @@ window.wasmBindings = bindings;
 dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
 </script>
-    <!-- App styles -->
-    <link rel="stylesheet" href="/style-cf4c767abb7e6997.css" integrity="sha384-d2myDoJjMo6g8zpQql8yc/EgN8pgJqNbuRp+PpxAjRI/JkJtlprFPTrwiXfrqQl/"/>
-  <link rel="modulepreload" href="/frontend-f9935cac133eada.js" crossorigin="anonymous" integrity="sha384-gsc/ijuUz8235wGmcKXowbgcal0I4e4uAof+W//wxxerNZZ1p1wCkQJIC7U3HhfG"><link rel="preload" href="/frontend-f9935cac133eada_bg.wasm" crossorigin="anonymous" integrity="sha384-YZD3UGejUUCb2MWyHTDQFtrppSxM14ueA0VTDh/B+1sZBw/7Wdzbu1aoPly3PKQv" as="fetch" type="application/wasm"></head>
+    <link rel="stylesheet" href="/style-5a20e6edb588c54f.css" integrity="sha384-2G7RvirXq6P3OTonJfbyfrySCDJr+QTYwtN5T/RLmvNb2nA2pzLdwtSHnhI5KSM7"/>
+  <link rel="modulepreload" href="/frontend-9ab983be637bbc5.js" crossorigin="anonymous" integrity="sha384-Tnkvik08dtRLRlwk2nLusffoko8cK8vapY7MQog5cxd+JvxCFcp/IoKRF1EMMDIk"><link rel="preload" href="/frontend-9ab983be637bbc5_bg.wasm" crossorigin="anonymous" integrity="sha384-1yauU9EoCIlEaZ2xZVO642DN4Y21zYmgIJ1PUb9zta5zYpj8QVD7K5xWDsnncUq6" as="fetch" type="application/wasm"></head>
   <body>
-    <!-- The Leptos app will mount into body -->
+    <div id="app"></div>
   <script>"use strict";
 
 (function () {
