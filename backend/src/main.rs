@@ -20,6 +20,10 @@ async fn main() -> anyhow::Result<()> {
 
     let embedder = embed::Embedder::new()
         .map_err(|e| anyhow::anyhow!("Failed to initialize embedder: {}", e))?;
+    #[cfg(feature = "spfresh")]
+    let vector_store = VectorStore::open_or_create(data_dir.join("reviews.index"))
+        .map_err(|e| anyhow::anyhow!("Failed to open or create vector store: {}", e))?;
+    #[cfg(not(feature = "spfresh"))]
     let vector_store = VectorStore::open_or_create(data_dir.join("reviews.index"))
         .map_err(|e| anyhow::anyhow!("Failed to open or create vector store: {}", e))?;
     let metadata_store = MetadataStore::open_or_create(data_dir.join("reviews.jsonl"))

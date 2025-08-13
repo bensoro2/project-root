@@ -18,7 +18,7 @@ impl Index {
         }
         Ok(Self {
             path: p.to_path_buf(),
-            dim: 384,
+            dim: 768,
         })
     }
 

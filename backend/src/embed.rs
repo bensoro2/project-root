@@ -17,18 +17,18 @@ impl Embedder {
     pub fn new() -> Result<Self> {
         #[cfg(feature = "fastembed")]
         {
-            let options = InitOptions::new(EmbeddingModel::AllMiniLML6V2)
+            let options = InitOptions::new(EmbeddingModel::MultilingualE5Base)
                 .with_show_download_progress(true);
             let model = TextEmbedding::try_new(options)?;
             Ok(Self {
                 model: Arc::new(Mutex::new(model)),
-                embedding_size: 384,
+                embedding_size: 768,
             })
         }
         #[cfg(not(feature = "fastembed"))]
         {
             Ok(Self {
-                embedding_size: 384,
+                embedding_size: 768,
             })
         }
     }

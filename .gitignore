@@ -1,0 +1,31 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Frontend build artifacts (Trunk)
+/frontend/dist/
+/frontend/pkg/
+
+# WASM & Trunk staging
+/stage/
+
+# Editor & OS junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Cache directories
+.fastembed_cache/
+
+# Application runtime data (do not commit large binaries)
+/backend/data/*.index*
+/backend/data/*.data
+/backend/data/*.meta
+/backend/data/*.jsonl
+
+# Logs
+*.log
+
+# Node & npm (if added in future)
+node_modules/
