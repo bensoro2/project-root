@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ordered_float::NotNan;
 use std::fs::{File, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]

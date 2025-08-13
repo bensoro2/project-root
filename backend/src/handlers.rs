@@ -1,11 +1,12 @@
 use std::sync::{Arc, Mutex};
 
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use axum::{extract::State, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
+use serde_json;
 
 use crate::embed::Embedder;
 use crate::storage::{metadata::MetadataStore, vector_store::VectorStore};
-
+use crate::error::AppError;
 
 pub struct AppStateInner {
     pub embedder: Embedder,
@@ -39,62 +40,130 @@ pub struct SearchResult {
     pub review: Review,
 }
 
-pub async fn insert_review(State(state): State<AppState>, Json(review): Json<Review>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let embedding = state.embedder.embed(&format!("{} {}", review.review_title, review.review_body));
-    {
-        let mut vs = state.vector_store.lock().unwrap();
-        vs.append(&embedding).map_err(internal_error)?;
+use axum::extract::rejection::JsonRejection;
+
+pub async fn insert_review(
+    State(state): State<AppState>,
+    payload: Result<Json<Review>, JsonRejection>,
+) -> Result<impl IntoResponse, AppError> {
+    let Json(review) = payload.map_err(AppError::from)?;
+    if review.review_title.trim().is_empty() {
+        return Err(AppError::ValidationError("Review title cannot be empty".to_string()));
     }
-    {
-        let mut ms = state.metadata_store.lock().unwrap();
-        ms.append(&review).map_err(internal_error)?;
+    if review.review_body.trim().is_empty() {
+        return Err(AppError::ValidationError("Review body cannot be empty".to_string()));
+    }
+    if review.product_id.trim().is_empty() {
+        return Err(AppError::ValidationError("Product ID cannot be empty".to_string()));
+    }
+    if review.review_rating < 1 || review.review_rating > 5 {
+        return Err(AppError::ValidationError("Review rating must be between 1 and 5".to_string()));
     }
 
-    Ok(StatusCode::CREATED)
+    let text = format!("{} {}", review.review_title.trim(), review.review_body.trim());
+    let embedding = state.embedder.embed(&text);
+    
+    {
+        let mut vs = state.vector_store.lock().map_err(|_| AppError::Internal(anyhow::anyhow!("Failed to acquire vector store lock")))?;
+        vs.append(&embedding).map_err(|e| AppError::Internal(e))?;
+    }
+    
+    {
+        let mut ms = state.metadata_store.lock().map_err(|_| AppError::Internal(anyhow::anyhow!("Failed to acquire metadata store lock")))?;
+        ms.append(&review).map_err(|e| AppError::Internal(e))?;
+    }
+
+    Ok(Json(serde_json::json!({"status": "success", "message": "Review created successfully"})))
 }
 
-pub async fn bulk_insert_reviews(State(state): State<AppState>, Json(reviews): Json<Vec<Review>>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    for review in &reviews {
-        let embedding = state.embedder.embed(&format!("{} {}", review.review_title, review.review_body));
-        {
-            let mut vs = state.vector_store.lock().unwrap();
-            vs.append(&embedding).map_err(internal_error)?;
+pub async fn bulk_insert_reviews(
+    State(state): State<AppState>,
+    payload: Result<Json<Vec<Review>>, JsonRejection>,
+) -> Result<impl IntoResponse, AppError> {
+    let Json(reviews) = payload.map_err(AppError::from)?;
+    for (index, review) in reviews.iter().enumerate() {
+        if review.review_title.trim().is_empty() {
+            return Err(AppError::ValidationError(format!("Review at index {} has empty title", index)));
         }
-        {
-            let mut ms = state.metadata_store.lock().unwrap();
-            ms.append(review).map_err(internal_error)?;
+        if review.review_body.trim().is_empty() {
+            return Err(AppError::ValidationError(format!("Review at index {} has empty body", index)));
+        }
+        if review.product_id.trim().is_empty() {
+            return Err(AppError::ValidationError(format!("Review at index {} has empty product ID", index)));
+        }
+        if review.review_rating < 1 || review.review_rating > 5 {
+            return Err(AppError::ValidationError(format!("Review at index {} has invalid rating", index)));
         }
     }
-    Ok(StatusCode::CREATED)
+
+    let mut vs = state.vector_store.lock().map_err(|_| AppError::Internal(anyhow::anyhow!("Failed to acquire vector store lock")))?;
+    let mut ms = state.metadata_store.lock().map_err(|_| AppError::Internal(anyhow::anyhow!("Failed to acquire metadata store lock")))?;
+
+    for review in &reviews {
+        let text = format!("{} {}", review.review_title.trim(), review.review_body.trim());
+        let embedding = state.embedder.embed(&text);
+        
+        vs.append(&embedding).map_err(|e| AppError::Internal(e))?;
+        ms.append(review).map_err(|e| AppError::Internal(e))?;
+    }
+
+    Ok(Json(serde_json::json!({"status": "success", "message": "Reviews created successfully", "count": reviews.len()})))
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SearchQuery {
     pub query: String,
-    pub top_k: Option<usize>,
+    #[serde(default = "default_top_k")]
+    pub top_k: usize,
 }
 
-pub async fn search_reviews(State(state): State<AppState>, Json(query): Json<SearchQuery>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let embedding = state.embedder.embed(&query.query);
-    let top_k = query.top_k.unwrap_or(5);
+fn default_top_k() -> usize {
+    5
+}
+
+impl SearchQuery {
+    fn validate(&self) -> Result<(), AppError> {
+        if self.query.trim().is_empty() {
+            return Err(AppError::ValidationError("Search query cannot be empty".to_string()));
+        }
+        if self.top_k == 0 {
+            return Err(AppError::ValidationError("top_k must be greater than 0".to_string()));
+        }
+        if self.top_k > 100 {
+            return Err(AppError::ValidationError("top_k cannot be greater than 100".to_string()));
+        }
+        Ok(())
+    }
+}
+
+pub async fn search_reviews(
+    State(state): State<AppState>,
+    payload: Result<Json<SearchQuery>, JsonRejection>,
+) -> Result<impl IntoResponse, AppError> {
+    let Json(query) = payload.map_err(AppError::from)?;
+    query.validate()?;
+
+    // (query validated below)
+let embedding = state.embedder.embed(&query.query.trim());
 
     let ids_scores = {
-        let vs = state.vector_store.lock().unwrap();
-        vs.search(&embedding, top_k).map_err(internal_error)?
+        let vs = state.vector_store.lock().map_err(|_| AppError::Internal(anyhow::anyhow!("Failed to acquire vector store lock")))?;
+        vs.search(&embedding, query.top_k).map_err(|e| AppError::Internal(e))?
     };
 
     let mut results = Vec::new();
     {
-        let ms = state.metadata_store.lock().unwrap();
+        let ms = state.metadata_store.lock().map_err(|_| AppError::Internal(anyhow::anyhow!("Failed to acquire metadata store lock")))?;
         for (idx, score) in ids_scores {
-            let review: Review = ms.get_by_index(idx).map_err(internal_error)?;
+            let review: Review = ms.get_by_index(idx).map_err(|e| AppError::Internal(e))?;
             results.push(SearchResult { score, review });
         }
     }
 
-    Ok(Json(results))
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "count": results.len(),
+        "results": results
+    })))
 }
 
-fn internal_error<E: std::fmt::Display>(err: E) -> (StatusCode, String) {
-    (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
-}

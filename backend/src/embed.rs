@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 pub struct Embedder {
     #[cfg(feature = "fastembed")]
     model: Arc<Mutex<TextEmbedding>>,
+    embedding_size: usize,
 }
 
 impl Embedder {
@@ -19,26 +20,49 @@ impl Embedder {
             let options = InitOptions::new(EmbeddingModel::AllMiniLML6V2)
                 .with_show_download_progress(true);
             let model = TextEmbedding::try_new(options)?;
-            Ok(Self { model: Arc::new(Mutex::new(model)) })
+            Ok(Self {
+                model: Arc::new(Mutex::new(model)),
+                embedding_size: 384,
+            })
         }
         #[cfg(not(feature = "fastembed"))]
         {
-            Ok(Self {})
+            Ok(Self {
+                embedding_size: 384,
+            })
         }
     }
 
     pub fn embed(&self, text: &str) -> Vec<f32> {
+        if text.trim().is_empty() {
+            return vec![0.0_f32; self.embedding_size];
+        }
+        
         #[cfg(feature = "fastembed")]
         {
-            let mut guard = self.model.lock().unwrap();
+            let mut guard = self.model.lock().expect("Failed to acquire model lock");
             match guard.embed(vec![text], None) {
-                Ok(mut v) => v.remove(0),
-                Err(_) => vec![0.0_f32; 384],
+                Ok(mut embeddings) => {
+                    if let Some(embedding) = embeddings.pop() {
+                        embedding
+                    } else {
+                        vec![0.0_f32; self.embedding_size]
+                    }
+                },
+                Err(e) => {
+                    tracing::error!("Failed to generate embedding: {}", e);
+                    vec![0.0_f32; self.embedding_size]
+                }
             }
         }
         #[cfg(not(feature = "fastembed"))]
         {
-            vec![0.0_f32; 384]
+            vec![0.0_f32; self.embedding_size]
         }
+    }
+    
+    #[allow(dead_code)]
+pub fn embedding_size(&self) -> usize {
+        self.embedding_size
     }
 }
