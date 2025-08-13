@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use axum::{extract::State, response::IntoResponse, Json};
+use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json;
 
@@ -73,7 +74,7 @@ pub async fn insert_review(
         ms.append(&review).map_err(|e| AppError::Internal(e))?;
     }
 
-    Ok(Json(serde_json::json!({"status": "success", "message": "Review created successfully"})))
+    Ok((StatusCode::CREATED, Json(serde_json::json!({"status": "success", "message": "Review created successfully"}))))
 }
 
 pub async fn bulk_insert_reviews(
@@ -160,10 +161,6 @@ let embedding = state.embedder.embed(&query.query.trim());
         }
     }
 
-    Ok(Json(serde_json::json!({
-        "status": "success",
-        "count": results.len(),
-        "results": results
-    })))
+    Ok(Json(results))
 }
 
