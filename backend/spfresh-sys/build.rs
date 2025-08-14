@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use glob::glob;
 
 fn main() {
     if let Ok(lib_dir) = std::env::var("SPFRESH_LIB_DIR") {
@@ -27,8 +28,33 @@ fn build_cpp() {
     let mut build = cc::Build::new();
     build.cpp(true)
         .include("../spfresh/include")
-        .file("../spfresh/src/spfresh.cpp")
-        .warnings(false);
+        .include("../spfresh/AnnService/inc")
+        .include("../spfresh/AnnService")
+        .define("NOMINMAX", None);
+
+    if let Ok(boost_root) = std::env::var("BOOST_ROOT") {
+        build.include(format!("{}/include", boost_root));
+    }
+
+    for entry in glob("../spfresh/**/*.cpp").expect("Failed to read glob pattern") {
+        if let Ok(path) = entry {
+            let p = path.to_string_lossy();
+            if p.contains("/Socket/") || p.contains("\\Socket\\")
+                || p.contains("Aggregator")
+                || p.contains("Server")
+                || p.contains("Wrappers")
+                || p.contains("BalancedDataPartition")
+                || p.contains("Client")
+                || p.contains("SPANN")
+                || p.contains("SPDK")
+                || p.contains("/Test/") || p.contains("\\Test\\")
+            {
+                continue;
+            }
+            build.file(path);
+        }
+    }
+    build.warnings(false);
         
     build.compile("spfresh");
     
