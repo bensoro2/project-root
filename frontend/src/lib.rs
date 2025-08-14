@@ -2,6 +2,8 @@ use leptos::*;
 use leptos_router::*;
 use gloo_net::http::Request;
 use wasm_bindgen_futures::spawn_local;
+use gloo_file::{File, futures::read_as_text};
+use wasm_bindgen::JsCast;
 
 use crate::models::{Review, SearchQuery, SearchResult};
 
@@ -15,8 +17,12 @@ fn InsertForm() -> impl IntoView {
     let (rating, set_rating) = create_signal(5_i32);
     let (status, set_status) = create_signal(String::new());
     let (is_loading, set_loading) = create_signal(false);
+    let (selected_file, set_selected_file) = create_signal::<Option<File>>(None);
 
     let is_valid = move || {
+        if selected_file.get().is_some() {
+            return true;
+        }
         !title.get().trim().is_empty() &&
         !body.get().trim().is_empty() &&
         !product_id.get().trim().is_empty() &&
@@ -26,6 +32,64 @@ fn InsertForm() -> impl IntoView {
     let on_submit = move |_| {
         if !is_valid() {
             set_status.set("Please fill in all fields correctly".into());
+            return;
+        }
+
+        // Bulk upload path if file selected
+        if let Some(file) = selected_file.get() {
+            // capture current form values
+            let maybe_review = if !title.get().trim().is_empty() {
+                Some(Review {
+                    review_title: title.get().trim().to_string(),
+                    review_body: body.get().trim().to_string(),
+                    product_id: product_id.get().trim().to_string(),
+                    review_rating: rating.get(),
+                })
+            } else {
+                None
+            };
+
+            set_status.set("Uploading file...".into());
+            set_loading.set(true);
+            let set_loading_c = set_loading.clone();
+            let set_status_c = set_status.clone();
+            let set_selected_file_c = set_selected_file.clone();
+            spawn_local(async move {
+                match read_as_text(&file).await {
+                    Ok(text) => {
+                        match serde_json::from_str::<Vec<Review>>(&text) {
+                            Ok(mut reviews) => {
+                                        if let Some(r) = maybe_review.clone() {
+                                            reviews.push(r);
+                                        }
+                                let res = Request::post(&format!("{}/reviews/bulk", BACKEND_URL))
+                                    .header("Content-Type", "application/json")
+                                    .body(serde_json::to_string(&reviews).unwrap())
+                                    .unwrap()
+                                    .send()
+                                    .await;
+                                set_loading_c.set(false);
+                                match res {
+                                    Ok(r) if r.status() == 200 || r.status() == 201 => {
+                                        set_status_c.set("✓ Bulk reviews uploaded!".into());
+                                        set_selected_file_c.set(None);
+                                    },
+                                    Ok(r) => set_status_c.set(format!("Error: HTTP {}", r.status()).into()),
+                                    Err(e) => set_status_c.set(format!("Network error: {}", e).into()),
+                                }
+                            }
+                            Err(e) => {
+                                set_loading_c.set(false);
+                                set_status_c.set(format!("Failed to parse file: {}", e).into());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        set_loading_c.set(false);
+                        set_status_c.set(format!("Failed to read file: {}", e).into());
+                    }
+                }
+            });
             return;
         }
 
@@ -138,6 +202,23 @@ fn InsertForm() -> impl IntoView {
                         />
                         <label for="rating">"Rating"</label>
                     </div>
+                </div>
+                <div class="form-group">
+                    <input
+                        type="file"
+                        accept=".json,.jsonl"
+                        on:change=move |ev| {
+                            let input = ev.target().unwrap().unchecked_into::<web_sys::HtmlInputElement>();
+                            if let Some(files) = input.files() {
+                                if files.length() > 0 {
+                                    let f = files.get(0).unwrap();
+                                    set_selected_file.set(Some(File::from(f)));
+                                    set_status.set("File selected, ready to upload".into());
+                                }
+                            }
+                        }
+                        disabled=is_loading
+                    />
                 </div>
                 <div>
                     <button
