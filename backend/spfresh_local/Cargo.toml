@@ -13,6 +13,7 @@ libc = "0.2"
 anyhow = "1.0"
 ordered-float = "4.2"
 bytemuck = { version = "1.14", features = ["derive"] }
+spfresh-sys = { path = "../spfresh-sys", optional = true }
 
 [build-dependencies]
 cc = "1.0"
@@ -20,7 +21,7 @@ cc = "1.0"
 [features]
 default = ["capi"]
 capi = []
-spfresh = []
+spfresh = ["dep:spfresh-sys"]
 
 [[example]]
 name = "demo"

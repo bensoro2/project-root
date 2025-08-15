@@ -17,12 +17,17 @@ extern "C" {
         result_scores: *mut f32
     ) -> i32;
     
+    pub fn spfresh_index_size(index: *mut SPFreshIndex) -> usize;
     pub fn spfresh_index_destroy(index: *mut SPFreshIndex);
 }
 
+#[derive(Debug)]
 pub struct Index {
     ptr: *mut SPFreshIndex,
 }
+
+unsafe impl Send for Index {}
+unsafe impl Sync for Index {}
 
 impl Index {
     pub fn new<P: AsRef<str>>(path: P) -> Result<Self, String> {
@@ -50,34 +55,36 @@ impl Index {
         }
     }
     
+    pub fn len(&self) -> usize {
+        unsafe { spfresh_index_size(self.ptr) }
+    }
+
     pub fn search(&self, query: &[f32], top_k: usize) -> Result<Vec<(usize, f32)>, String> {
-        if top_k == 0 {
+        let available = self.len();
+        if top_k == 0 || available == 0 {
             return Ok(Vec::new());
         }
+        let k = std::cmp::min(top_k, available);
         
-        let mut result_indices: Vec<usize> = vec![0; top_k];
-        let mut result_scores: Vec<f32> = vec![0.0; top_k];
+        let mut result_indices: Vec<usize> = vec![0; k];
+        let mut result_scores: Vec<f32> = vec![0.0; k];
         
         let result = unsafe {
             spfresh_index_search(
                 self.ptr,
                 query.as_ptr(),
                 query.len(),
-                top_k,
+                k,
                 result_indices.as_mut_ptr(),
                 result_scores.as_mut_ptr()
             )
         };
         
         if result == 0 {
-            let mut results: Vec<(usize, f32)> = result_indices
-                .into_iter()
-                .zip(result_scores.into_iter())
-                .collect();
-                
-            results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-            
-            Ok(results)
+            Ok(result_indices.into_iter().zip(result_scores.into_iter()).collect())
+        } else if result == -1 {
+            // Invalid parameters or empty index -> return empty vec instead of error
+            Ok(Vec::new())
         } else {
             Err(format!("Search failed: error code {}", result))
         }

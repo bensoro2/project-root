@@ -22,6 +22,10 @@ struct SPFreshIndex {
     std::mutex mtx;
     
     SPFreshIndex(const std::string& p) : path(p), dimension(768) {
+        // Strip ".index" extension if present to get base path
+        if (path.size() > 6 && path.substr(path.size() - 6) == ".index") {
+            path = path.substr(0, path.size() - 6);
+        }
         load_index();
     }
     
@@ -73,80 +77,112 @@ struct SPFreshIndex {
         std::lock_guard<std::mutex> lock(mtx);
         quantized_vectors.clear();
         norms.clear();
-        
-        std::ifstream file(path, std::ios::binary);
-        if (!file) {
+
+        std::string vec_path = path + ".vectors";
+        std::string meta_path = path + ".metadata";
+
+        std::ifstream vec_file(vec_path, std::ios::binary);
+        if (!vec_file) {
+            // No vectors yet; that's fine
             return true;
         }
-        
-        uint32_t magic;
-        file.read(reinterpret_cast<char*>(&magic), sizeof(magic));
-        if (magic != 0x50534648) {
-            return false; 
+
+        // Determine file size to compute number of vectors
+        vec_file.seekg(0, std::ios::end);
+        std::streampos vec_size = vec_file.tellg();
+        if (vec_size <= 0 || (vec_size % static_cast<std::streampos>(dimension)) != 0) {
+            return false;
         }
-        
-        uint32_t version;
-        file.read(reinterpret_cast<char*>(&version), sizeof(version));
-        
-        file.read(reinterpret_cast<char*>(&dimension), sizeof(dimension));
-        
-        uint32_t num_vectors;
-        file.read(reinterpret_cast<char*>(&num_vectors), sizeof(num_vectors));
-        
-        norms.resize(num_vectors);
-        file.read(reinterpret_cast<char*>(norms.data()), num_vectors * sizeof(float));
-        
-        quantized_vectors.resize(num_vectors);
-        for (uint32_t i = 0; i < num_vectors; i++) {
-            quantized_vectors[i].resize(dimension);
-            file.read(reinterpret_cast<char*>(quantized_vectors[i].data()), dimension * sizeof(uint8_t));
+        size_t num_vectors = static_cast<size_t>(vec_size) / dimension;
+        vec_file.seekg(0, std::ios::beg);
+
+        quantized_vectors.resize(num_vectors, std::vector<uint8_t>(dimension));
+        for (size_t i = 0; i < num_vectors; i++) {
+            vec_file.read(reinterpret_cast<char*>(quantized_vectors[i].data()), dimension);
         }
-        
+
+        // Load norms if available
+        std::ifstream meta_file(meta_path, std::ios::binary);
+        if (meta_file) {
+            norms.resize(num_vectors);
+            meta_file.read(reinterpret_cast<char*>(norms.data()), num_vectors * sizeof(float));
+            if (meta_file.gcount() != static_cast<std::streamsize>(num_vectors * sizeof(float))) {
+                // Corrupt metadata; recompute norms
+                norms.clear();
+            }
+        }
+
+        if (norms.size() != num_vectors) {
+            norms.resize(num_vectors);
+            for (size_t i = 0; i < num_vectors; i++) {
+                std::vector<float> deq = dequantize_vector(quantized_vectors[i]);
+                norms[i] = calculate_norm(deq);
+            }
+            save_index();
+        }
         return true;
     }
     
     bool save_index() {
         std::lock_guard<std::mutex> lock(mtx);
-        std::ofstream file(path, std::ios::binary | std::ios::trunc);
-        if (!file) {
-            return false;
+        std::string vec_path = path + ".vectors";
+        std::string meta_path = path + ".metadata";
+
+        // Save vectors
+        {
+            std::ofstream vec_file(vec_path, std::ios::binary | std::ios::trunc);
+            if (!vec_file) {
+                return false;
+            }
+            for (const auto& qv : quantized_vectors) {
+                vec_file.write(reinterpret_cast<const char*>(qv.data()), dimension);
+            }
         }
-        
-        uint32_t magic = 0x50534648;
-        file.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
-        
-        uint32_t version = 1;
-        file.write(reinterpret_cast<const char*>(&version), sizeof(version));
-        
-        file.write(reinterpret_cast<const char*>(&dimension), sizeof(dimension));
-        
-        uint32_t num_vectors = quantized_vectors.size();
-        file.write(reinterpret_cast<const char*>(&num_vectors), sizeof(num_vectors));
-        
-        file.write(reinterpret_cast<const char*>(norms.data()), num_vectors * sizeof(float));
-        
-        for (const auto& quantized_vec : quantized_vectors) {
-            file.write(reinterpret_cast<const char*>(quantized_vec.data()), dimension * sizeof(uint8_t));
+
+        // Save norms
+        {
+            std::ofstream meta_file(meta_path, std::ios::binary | std::ios::trunc);
+            if (!meta_file) {
+                return false;
+            }
+            meta_file.write(reinterpret_cast<const char*>(norms.data()), norms.size() * sizeof(float));
         }
-        
         return true;
     }
     
     int append(const float* vector, size_t dim) {
         std::lock_guard<std::mutex> lock(mtx);
-        
         if (dim != dimension) {
             return -1;
         }
-        
+
+        // Quantize and compute norm
         std::vector<float> vec(vector, vector + dim);
         std::vector<uint8_t> quantized_vec = quantize_vector(vec);
         float norm = calculate_norm(vec);
 
-        quantized_vectors.push_back(std::move(quantized_vec));
+        // In-memory
+        quantized_vectors.push_back(quantized_vec);
         norms.push_back(norm);
-        
-        return save_index() ? 0 : -2;
+
+        // Incremental write – append to files instead of rewriting the whole set
+        std::string vec_path = path + ".vectors";
+        std::string meta_path = path + ".metadata";
+        {
+            std::ofstream vec_file(vec_path, std::ios::binary | std::ios::app);
+            if (!vec_file) {
+                return -2;
+            }
+            vec_file.write(reinterpret_cast<const char*>(quantized_vec.data()), dimension);
+        }
+        {
+            std::ofstream meta_file(meta_path, std::ios::binary | std::ios::app);
+            if (!meta_file) {
+                return -2;
+            }
+            meta_file.write(reinterpret_cast<const char*>(&norm), sizeof(float));
+        }
+        return 0;
     }
     
     int search(const float* query, size_t dim, size_t top_k,
@@ -234,6 +270,15 @@ extern "C" {
         if (it == index_map.end()) return -1;
         
         return it->second->search(query, dim, top_k, result_indices, result_scores);
+    }
+    
+    size_t spfresh_index_size(void* index_ptr) {
+        if (!index_ptr) return 0;
+        
+        std::lock_guard<std::mutex> lock(map_mutex);
+        auto it = index_map.find(index_ptr);
+        if (it == index_map.end()) return 0;
+        return it->second->quantized_vectors.size();
     }
     
     void spfresh_index_destroy(void* index_ptr) {

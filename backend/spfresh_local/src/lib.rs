@@ -11,6 +11,9 @@ pub struct Index {
     inner: sys::Index,
 }
 
+unsafe impl Send for Index {}
+unsafe impl Sync for Index {}
+
 #[cfg(feature = "spfresh")]
 impl Index {
     pub fn open_or_create<P: AsRef<Path>>(path: P) -> Result<Self> {
@@ -24,6 +27,10 @@ impl Index {
     pub fn append(&mut self, vector: &[f32]) -> Result<()> {
         self.inner.append(vector)
             .map_err(|e| anyhow::anyhow!("Failed to append vector: {}", e))
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
     }
 
     pub fn search(&self, query: &[f32], top_k: usize) -> Result<Vec<(usize, f32)>> {
@@ -77,6 +84,14 @@ mod fallback {
                 .map_err(|e| anyhow::anyhow!("Failed to sync vector store to disk: {}", e))?;
                 
             Ok(())
+        }
+
+        pub fn len(&self) -> Result<usize> {
+            let mut file = File::open(&self.path)
+                .map_err(|e| anyhow::anyhow!("Failed to open vector store file: {}", e))?;
+            let size = file.seek(SeekFrom::End(0))?
+                as usize;
+            Ok(size / (self.dim * std::mem::size_of::<f32>()))
         }
 
         pub fn search(&self, query: &[f32], top_k: usize) -> Result<Vec<(usize, f32)>> {

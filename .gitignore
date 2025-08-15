@@ -35,3 +35,11 @@ kaggle.json
 
 tweets.csv
 
+reviews.jsonl
+reviews.vectors
+reviews.metadata
+
+# Application data files in backend/data/
+/backend/data/*.jsonl
+/backend/data/*.vectors
+/backend/data/*.metadata

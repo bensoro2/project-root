@@ -42,13 +42,11 @@ pub struct SearchResult {
     pub review: Review,
 }
 
-use axum::extract::rejection::JsonRejection;
 
 pub async fn insert_review(
     State(state): State<AppState>,
-    payload: Result<Json<Review>, JsonRejection>,
+    Json(review): Json<Review>,
 ) -> Result<impl IntoResponse, AppError> {
-    let Json(review) = payload.map_err(AppError::from)?;
     if review.review_title.trim().is_empty() {
         return Err(AppError::ValidationError("Review title cannot be empty".to_string()));
     }
@@ -88,9 +86,8 @@ pub async fn insert_review(
 
 pub async fn bulk_insert_reviews(
     State(state): State<AppState>,
-    payload: Result<Json<Vec<Review>>, JsonRejection>,
+    Json(reviews): Json<Vec<Review>>,
 ) -> Result<impl IntoResponse, AppError> {
-    let Json(reviews) = payload.map_err(AppError::from)?;
     for (index, review) in reviews.iter().enumerate() {
         if review.review_title.trim().is_empty() {
             return Err(AppError::ValidationError(format!("Review at index {} has empty title", index)));
@@ -157,9 +154,8 @@ impl SearchQuery {
 
 pub async fn search_reviews(
     State(state): State<AppState>,
-    payload: Result<Json<SearchQuery>, JsonRejection>,
+    Json(query): Json<SearchQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let Json(query) = payload.map_err(AppError::from)?;
     query.validate()?;
 
     // (query validated below)
