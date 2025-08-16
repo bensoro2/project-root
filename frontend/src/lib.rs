@@ -222,21 +222,25 @@ fn InsertForm() -> impl IntoView {
                     </div>
                 </div>
                 <div class="form-group">
-                    <input
-                        type="file"
-                        accept=".json,.jsonl"
-                        on:change=move |ev| {
-                            let input = ev.target().unwrap().unchecked_into::<web_sys::HtmlInputElement>();
-                            if let Some(files) = input.files() {
-                                if files.length() > 0 {
-                                    let f = files.get(0).unwrap();
-                                    set_selected_file.set(Some(File::from(f)));
-                                    set_status.set("File selected, ready to upload".into());
+                    <div class="form-control">
+                        <input
+                            id="bulk-file"
+                            type="file"
+                            accept=".json,.jsonl"
+                            on:change=move |ev| {
+                                let input = ev.target().unwrap().unchecked_into::<web_sys::HtmlInputElement>();
+                                if let Some(files) = input.files() {
+                                    if files.length() > 0 {
+                                        let f = files.get(0).unwrap();
+                                        set_selected_file.set(Some(File::from(f)));
+                                        set_status.set("File selected, ready to upload".into());
+                                    }
                                 }
                             }
-                        }
-                        disabled=is_loading
-                    />
+                            disabled=is_loading
+                        />
+                        <label for="bulk-file">"Bulk Reviews JSON (.json / .jsonl)"</label>
+                    </div>
                 </div>
                 <div>
                     <button
