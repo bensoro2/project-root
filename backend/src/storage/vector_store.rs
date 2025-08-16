@@ -26,7 +26,7 @@ use std::cmp::Reverse;
             if !path.exists() {
                 File::create(&path)?;
             }
-            Ok(Self { path, dim: 768, scale: 127.0 })
+            Ok(Self { path, dim: 256, scale: 127.0 })
         }
 
         pub fn append(&mut self, vector: &[f32]) -> Result<()> {

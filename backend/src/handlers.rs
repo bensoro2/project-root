@@ -61,7 +61,7 @@ pub async fn insert_review(
     }
 
     let text = format!("{} {}", review.review_title.trim(), review.review_body.trim());
-    let embedding = state.embedder.embed(&text);
+    let embedding = state.embedder.embed_default(&text);
     
     {
         let mut vs = state.vector_store.lock().map_err(|_| AppError::Internal(anyhow::anyhow!("Failed to acquire vector store lock")))?;
@@ -108,7 +108,7 @@ pub async fn bulk_insert_reviews(
 
     for review in &reviews {
         let text = format!("{} {}", review.review_title.trim(), review.review_body.trim());
-        let embedding = state.embedder.embed(&text);
+        let embedding = state.embedder.embed_default(&text);
         
         vs.append(&embedding).map_err(|e| AppError::Internal(e))?;
         ms.append(review).map_err(|e| AppError::Internal(e))?;
@@ -159,7 +159,10 @@ pub async fn search_reviews(
     query.validate()?;
 
     // (query validated below)
+#[cfg(feature = "spfresh")]
 let embedding = state.embedder.embed(&query.query.trim());
+#[cfg(not(feature = "spfresh"))]
+let embedding = state.embedder.embed_default(&query.query.trim());
 
     let ids_scores = {
         let vs = state.vector_store.lock().map_err(|_| AppError::Internal(anyhow::anyhow!("Failed to acquire vector store lock")))?;

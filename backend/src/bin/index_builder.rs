@@ -126,10 +126,10 @@ fn process_batch(lines: &[String], embedder: &Embedder, index: &mut VectorIndex)
         .par_iter()
         .map(|l| {
             match serde_json::from_str::<Value>(l) {
-                Ok(v) => embedder.embed(&extract_text(&v)),
+                Ok(v) => embedder.embed_default(&extract_text(&v)),
                 Err(_) => {
                     // Fall back to embedding raw line text so index stays aligned
-                    embedder.embed(l)
+                    embedder.embed_default(l)
                 }
             }
         })
