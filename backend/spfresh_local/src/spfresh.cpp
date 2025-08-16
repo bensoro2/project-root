@@ -12,7 +12,7 @@
 
 const float MIN_VAL = -2.0f;
 const float MAX_VAL = 2.0f;
-const uint8_t QUANTIZATION_LEVELS = 255;
+const uint8_t QUANTIZATION_LEVELS = 127; // Use 7 bits instead of 8 bits to reduce file size
 
 struct SPFreshIndex {
     std::string path;
@@ -20,6 +20,11 @@ struct SPFreshIndex {
     std::vector<float> norms;
     size_t dimension;
     std::mutex mtx;
+    
+    // Buffer for incremental writes
+    std::vector<std::vector<uint8_t>> write_buffer_vectors;
+    std::vector<float> write_buffer_norms;
+    static const size_t WRITE_BUFFER_SIZE = 1000; // Write to disk every 1000 vectors
     
     SPFreshIndex(const std::string& p) : path(p), dimension(768) {
         // Strip ".index" extension if present to get base path
@@ -30,7 +35,41 @@ struct SPFreshIndex {
     }
     
     ~SPFreshIndex() {
+        flush_write_buffer();
         save_index();
+    }
+    
+    void flush_write_buffer() {
+        if (write_buffer_vectors.empty()) return;
+        
+        std::string vec_path = path + ".vectors";
+        std::string meta_path = path + ".metadata";
+        
+        {
+            std::ofstream vec_file(vec_path, std::ios::binary | std::ios::app);
+            if (!vec_file) {
+                std::cerr << "Failed to open vector file for writing: " << vec_path << std::endl;
+                return;
+            }
+            for (const auto& qv : write_buffer_vectors) {
+                vec_file.write(reinterpret_cast<const char*>(qv.data()), dimension);
+            }
+        }
+        
+        // Append norms to file
+        {
+            std::ofstream meta_file(meta_path, std::ios::binary | std::ios::app);
+            if (!meta_file) {
+                std::cerr << "Failed to open metadata file for writing: " << meta_path << std::endl;
+                return;
+            }
+            meta_file.write(reinterpret_cast<const char*>(write_buffer_norms.data()),
+                           write_buffer_norms.size() * sizeof(float));
+        }
+        
+        // Clear buffers
+        write_buffer_vectors.clear();
+        write_buffer_norms.clear();
     }
     
     uint8_t quantize(float val) {
@@ -165,23 +204,15 @@ struct SPFreshIndex {
         quantized_vectors.push_back(quantized_vec);
         norms.push_back(norm);
 
-        // Incremental write – append to files instead of rewriting the whole set
-        std::string vec_path = path + ".vectors";
-        std::string meta_path = path + ".metadata";
-        {
-            std::ofstream vec_file(vec_path, std::ios::binary | std::ios::app);
-            if (!vec_file) {
-                return -2;
-            }
-            vec_file.write(reinterpret_cast<const char*>(quantized_vec.data()), dimension);
+        // Add to write buffer
+        write_buffer_vectors.push_back(quantized_vec);
+        write_buffer_norms.push_back(norm);
+
+        // Flush buffer if it's full
+        if (write_buffer_vectors.size() >= WRITE_BUFFER_SIZE) {
+            flush_write_buffer();
         }
-        {
-            std::ofstream meta_file(meta_path, std::ios::binary | std::ios::app);
-            if (!meta_file) {
-                return -2;
-            }
-            meta_file.write(reinterpret_cast<const char*>(&norm), sizeof(float));
-        }
+        
         return 0;
     }
     

@@ -7,6 +7,9 @@ use std::env;
 
 
 use backend::handlers::{bulk_insert_reviews, insert_review, search_reviews};
+use backend::handlers as handlers;
+#[cfg(feature = "fastembed")]
+use backend::bulk_insert;
 use backend::embed::Embedder;
 use backend::storage::{metadata::MetadataStore, vector_store::VectorStore};
 
@@ -53,7 +56,8 @@ async fn main() -> anyhow::Result<()> {
     
     tracing::info!("Listening on http://{}", listener.local_addr()?);
     
-    // Check if we should insert bitcoin tweets
+    // Check if we should insert bitcoin tweets (only when fastembed enabled)
+    #[cfg(feature = "fastembed")]
     if env::args().any(|arg| arg == "--insert-bitcoin-tweets") {
         tokio::spawn(async {
             if let Err(e) = bulk_insert::insert_bitcoin_tweets().await {

@@ -18,15 +18,20 @@ unsafe impl Sync for Index {}
 impl Index {
     pub fn open_or_create<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path_str = path.as_ref().to_string_lossy();
+        println!("Creating SPFresh index with path: {}", path_str);
         let inner = sys::Index::new(&path_str)
             .map_err(|e| anyhow::anyhow!("Failed to create SPFresh index: {}", e))?;
+        println!("SPFresh index created successfully");
         
         Ok(Self { inner })
     }
 
     pub fn append(&mut self, vector: &[f32]) -> Result<()> {
-        self.inner.append(vector)
-            .map_err(|e| anyhow::anyhow!("Failed to append vector: {}", e))
+        let result = self.inner.append(vector);
+        if let Err(ref e) = result {
+            eprintln!("Failed to append vector: {}", e);
+        }
+        result.map_err(|e| anyhow::anyhow!("Failed to append vector: {}", e))
     }
 
     pub fn len(&self) -> usize {
