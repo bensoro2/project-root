@@ -40,6 +40,20 @@ fn main() -> Result<()> {
     let embedder = Embedder::new()?;
     println!("Embedder initialized");
 
+    println!("Resetting index directory/file ...");
+    let index_path = {
+        #[cfg(feature = "spfresh")]
+        { data_dir.join("reviews") }
+        #[cfg(not(feature = "spfresh"))]
+        { data_dir.join("reviews.vectors") }
+    };
+    if index_path.exists() {
+        if index_path.is_dir() {
+            std::fs::remove_dir_all(&index_path)?;
+        } else {
+            std::fs::remove_file(&index_path)?;
+        }
+    }
     println!("Opening or creating index...");
     #[cfg(feature = "spfresh")]
     let mut index = VectorIndex::open_or_create(data_dir.join("reviews"))?;
@@ -47,24 +61,30 @@ fn main() -> Result<()> {
     let mut index = VectorIndex::open_or_create(data_dir.join("reviews.vectors"))?;
     println!("Index opened or created");
 
-    // Stream JSONL file in batches
-    const BATCH: usize = 1000; // Reduce batch size to improve responsiveness
+    // Only keep first 1 000 records so that metadata & vectors stay in sync
+    const LIMIT: usize = 1_000;
+    const BATCH: usize = 200; // smaller batches to control RAM
+
     let file = File::open(&input_path)?;
     let reader = BufReader::new(file);
     let mut buffer = Vec::with_capacity(BATCH);
     let mut processed: usize = 0;
+    let mut trimmed_lines: Vec<String> = Vec::with_capacity(LIMIT);
 
-    println!("Starting to process lines...");
-    for line in reader.lines() {
+    println!("Processing up to {} lines...", LIMIT);
+    for (idx, line) in reader.lines().enumerate() {
+        if idx >= LIMIT {
+            break;
+        }
         let line = line?;
+        trimmed_lines.push(line.clone());
         buffer.push(line);
         if buffer.len() == BATCH {
             println!("Processing batch of {} lines...", buffer.len());
             process_batch(&buffer, &embedder, &mut index)?;
             processed += buffer.len();
-            let pct = (processed as f64 * 100.0) / (total_lines as f64);
-            print!("Processed {} / {} ({:.1}%)\r", processed, total_lines, pct);
-            std::io::stdout().flush()?;
+            let pct = (processed as f64 * 100.0) / (LIMIT as f64);
+            print!("Processed {} / {} ({:.1}%)\r", processed, LIMIT, pct);
             std::io::stdout().flush()?;
             buffer.clear();
         }
@@ -73,11 +93,11 @@ fn main() -> Result<()> {
         println!("Processing final batch of {} lines...", buffer.len());
         process_batch(&buffer, &embedder, &mut index)?;
         processed += buffer.len();
-        let pct = (processed as f64 * 100.0) / (total_lines as f64);
-            print!("Processed {} / {} ({:.1}%)\r", processed, total_lines, pct);
-            std::io::stdout().flush()?;
-        std::io::stdout().flush()?;
     }
+
+    // Rewrite the metadata file so it contains exactly LIMIT lines
+    std::fs::write(&input_path, trimmed_lines.join("\n") + "\n")?;
+    println!("Trimmed {:?} to {} lines", input_path, LIMIT);
 
     #[cfg(feature = "spfresh")]
     println!("Index build completed. Total vectors: {}", index.len());
@@ -104,8 +124,15 @@ fn process_batch(lines: &[String], embedder: &Embedder, index: &mut VectorIndex)
     // Parse and embed in parallel
     let embeddings: Vec<Vec<f32>> = lines
         .par_iter()
-        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
-        .map(|v| embedder.embed(&extract_text(&v)))
+        .map(|l| {
+            match serde_json::from_str::<Value>(l) {
+                Ok(v) => embedder.embed(&extract_text(&v)),
+                Err(_) => {
+                    // Fall back to embedding raw line text so index stays aligned
+                    embedder.embed(l)
+                }
+            }
+        })
         .collect();
     println!("Generated {} embeddings", embeddings.len());
 

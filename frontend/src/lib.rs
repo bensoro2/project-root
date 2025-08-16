@@ -57,31 +57,52 @@ fn InsertForm() -> impl IntoView {
             spawn_local(async move {
                 match read_as_text(&file).await {
                     Ok(text) => {
-                        match serde_json::from_str::<Vec<Review>>(&text) {
-                            Ok(mut reviews) => {
-                                        if let Some(r) = maybe_review.clone() {
-                                            reviews.push(r);
-                                        }
-                                let res = Request::post(&format!("{}/reviews/bulk", BACKEND_URL))
-                                    .header("Content-Type", "application/json")
-                                    .body(serde_json::to_string(&reviews).unwrap())
-                                    .unwrap()
-                                    .send()
-                                    .await;
-                                set_loading_c.set(false);
-                                match res {
-                                    Ok(r) if r.status() == 200 || r.status() == 201 => {
-                                        set_status_c.set("✓ Bulk reviews uploaded!".into());
-                                        set_selected_file_c.set(None);
-                                    },
-                                    Ok(r) => set_status_c.set(format!("Error: HTTP {}", r.status()).into()),
-                                    Err(e) => set_status_c.set(format!("Network error: {}", e).into()),
+                        // Try to parse the uploaded text into a list of reviews, supporting
+                        // 1) an array of objects, 2) a single object, 3) JSONL (newline-separated objects)
+                        let mut reviews: Vec<Review> = Vec::new();
+                        let trimmed = text.trim();
+
+                        // 1) JSON array
+                        if let Ok(mut vec) = serde_json::from_str::<Vec<Review>>(trimmed) {
+                            reviews.append(&mut vec);
+                        } else {
+                            // 2) Single JSON object
+                            if let Ok(r) = serde_json::from_str::<Review>(trimmed) {
+                                reviews.push(r);
+                            } else {
+                                // 3) JSON Lines
+                                for line in trimmed.lines() {
+                                    if let Ok(r) = serde_json::from_str::<Review>(line) {
+                                        reviews.push(r);
+                                    }
                                 }
                             }
-                            Err(e) => {
-                                set_loading_c.set(false);
-                                set_status_c.set(format!("Failed to parse file: {}", e).into());
-                            }
+                        }
+
+                        if let Some(r) = maybe_review.clone() {
+                            reviews.push(r);
+                        }
+
+                        if reviews.is_empty() {
+                            set_loading_c.set(false);
+                            set_status_c.set("Failed to parse file: unsupported format".into());
+                            return;
+                        }
+
+                        let res = Request::post(&format!("{}/reviews/bulk", BACKEND_URL))
+                            .header("Content-Type", "application/json")
+                            .body(serde_json::to_string(&reviews).unwrap())
+                            .unwrap()
+                            .send()
+                            .await;
+                        set_loading_c.set(false);
+                        match res {
+                            Ok(r) if r.status() == 200 || r.status() == 201 => {
+                                set_status_c.set(format!("✓ Uploaded {} reviews!", reviews.len()).into());
+                                set_selected_file_c.set(None);
+                            },
+                            Ok(r) => set_status_c.set(format!("Error: HTTP {}", r.status()).into()),
+                            Err(e) => set_status_c.set(format!("Network error: {}", e).into()),
                         }
                     }
                     Err(e) => {
@@ -153,8 +174,7 @@ fn InsertForm() -> impl IntoView {
                             placeholder=" "
                             prop:value=title
                             on:input=move |e| set_title.set(event_target_value(&e))
-                            required
-                            disabled=is_loading
+                                                        disabled=is_loading
                         />
                         <label for="title">"Review Title"</label>
                     </div>
@@ -166,8 +186,7 @@ fn InsertForm() -> impl IntoView {
                             placeholder=" "
                             prop:value=body
                             on:input=move |e| set_body.set(event_target_value(&e))
-                            required
-                            disabled=is_loading
+                                                        disabled=is_loading
                         ></textarea>
                         <label for="body">"Review Body"</label>
                     </div>
@@ -180,8 +199,7 @@ fn InsertForm() -> impl IntoView {
                             placeholder=" "
                             prop:value=product_id
                             on:input=move |e| set_product_id.set(event_target_value(&e))
-                            required
-                            disabled=is_loading
+                                                        disabled=is_loading
                         />
                         <label for="product-id">"Product ID"</label>
                     </div>
@@ -326,8 +344,7 @@ fn SearchPage() -> impl IntoView {
                                 set_query.set(event_target_value(&e));
                                 set_error.set(String::new());
                             }
-                            required
-                            disabled=is_loading
+                                                        disabled=is_loading
                         />
                         <label for="search-query">"Search Query"</label>
                     </div>
@@ -338,11 +355,11 @@ fn SearchPage() -> impl IntoView {
                             id="top-k"
                             type="number"
                             min="1"
-                            max="20"
+                            max="100"
                             prop:value=topk
                             on:input=move |e| {
                                 let value = event_target_value(&e).parse().unwrap_or(5);
-                                set_topk.set(value.clamp(1, 20));
+                                set_topk.set(value.clamp(1, 100));
                             }
                             disabled=is_loading
                         />
