@@ -24,7 +24,6 @@ impl fmt::Display for AppError {
         }
     }
 }
-
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, error_response) = match self {
@@ -48,17 +47,14 @@ impl IntoResponse for AppError {
                 )
             }
         };
-
         (status, Json(error_response)).into_response()
     }
 }
-
 impl From<anyhow::Error> for AppError {
     fn from(error: anyhow::Error) -> Self {
         AppError::Internal(error)
     }
 }
-
 impl From<JsonRejection> for AppError {
     fn from(rejection: JsonRejection) -> Self {
         let message = format!("Failed to deserialize the JSON body into the target type: {}", rejection.body_text());

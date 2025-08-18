@@ -24,25 +24,20 @@ impl MetadataStore {
             .create(true)
             .open(&self.path)
             .map_err(|e| anyhow::anyhow!("Failed to open metadata store file: {}", e))?;
-            
         let mut writer = BufWriter::new(file);
         
         serde_json::to_writer(&mut writer, item)
             .map_err(|e| anyhow::anyhow!("Failed to serialize metadata item: {}", e))?;
-            
         writer.write_all(b"\n")
             .map_err(|e| anyhow::anyhow!("Failed to write newline to metadata store: {}", e))?;
-            
         writer.flush()
             .map_err(|e| anyhow::anyhow!("Failed to flush metadata store writer: {}", e))?;
-            
         Ok(())
     }
 
     pub fn get_by_index<T: for<'de> serde::Deserialize<'de>>(&self, index: usize) -> Result<T> {
         let file = File::open(&self.path)
             .map_err(|e| anyhow::anyhow!("Failed to open metadata store file: {}", e))?;
-            
         let reader = BufReader::new(file);
         
         let line = reader

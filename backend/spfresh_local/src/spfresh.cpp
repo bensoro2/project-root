@@ -10,9 +10,9 @@
 #include <mutex>
 #include <random>
 
-const float MIN_VAL = -2.0f;
-const float MAX_VAL = 2.0f;
-const uint8_t QUANTIZATION_LEVELS = 127; // Use 7 bits instead of 8 bits to reduce file size
+const float MIN_VAL = -1.0f;
+const float MAX_VAL = 1.0f;
+const uint8_t QUANTIZATION_LEVELS = 255;
 
 struct SPFreshIndex {
     std::string path;
@@ -21,13 +21,11 @@ struct SPFreshIndex {
     size_t dimension;
     std::mutex mtx;
     
-    // Buffer for incremental writes
     std::vector<std::vector<uint8_t>> write_buffer_vectors;
     std::vector<float> write_buffer_norms;
-    static const size_t WRITE_BUFFER_SIZE = 1000; // Write to disk every 1000 vectors
+    static const size_t WRITE_BUFFER_SIZE = 1000;
     
-    SPFreshIndex(const std::string& p) : path(p), dimension(768) {
-        // Strip ".index" extension if present to get base path
+    SPFreshIndex(const std::string& p) : path(p), dimension(128) {
         if (path.size() > 6 && path.substr(path.size() - 6) == ".index") {
             path = path.substr(0, path.size() - 6);
         }
@@ -56,7 +54,6 @@ struct SPFreshIndex {
             }
         }
         
-        // Append norms to file
         {
             std::ofstream meta_file(meta_path, std::ios::binary | std::ios::app);
             if (!meta_file) {
@@ -67,7 +64,6 @@ struct SPFreshIndex {
                            write_buffer_norms.size() * sizeof(float));
         }
         
-        // Clear buffers
         write_buffer_vectors.clear();
         write_buffer_norms.clear();
     }
@@ -107,7 +103,6 @@ struct SPFreshIndex {
             sum_sq += val * val;
         }
         float norm = std::sqrt(sum_sq);
-        // Debug: Log norm calculation
         std::cout << "Vector norm: " << norm << " (sum_sq: " << sum_sq << ")" << std::endl;
         return norm;
     }
@@ -122,11 +117,9 @@ struct SPFreshIndex {
 
         std::ifstream vec_file(vec_path, std::ios::binary);
         if (!vec_file) {
-            // No vectors yet; that's fine
             return true;
         }
 
-        // Determine file size to compute number of vectors
         vec_file.seekg(0, std::ios::end);
         std::streampos vec_size = vec_file.tellg();
         if (vec_size <= 0 || (vec_size % static_cast<std::streampos>(dimension)) != 0) {
@@ -140,13 +133,11 @@ struct SPFreshIndex {
             vec_file.read(reinterpret_cast<char*>(quantized_vectors[i].data()), dimension);
         }
 
-        // Load norms if available
         std::ifstream meta_file(meta_path, std::ios::binary);
         if (meta_file) {
             norms.resize(num_vectors);
             meta_file.read(reinterpret_cast<char*>(norms.data()), num_vectors * sizeof(float));
             if (meta_file.gcount() != static_cast<std::streamsize>(num_vectors * sizeof(float))) {
-                // Corrupt metadata; recompute norms
                 norms.clear();
             }
         }
@@ -167,7 +158,6 @@ struct SPFreshIndex {
         std::string vec_path = path + ".vectors";
         std::string meta_path = path + ".metadata";
 
-        // Save vectors
         {
             std::ofstream vec_file(vec_path, std::ios::binary | std::ios::trunc);
             if (!vec_file) {
@@ -178,7 +168,6 @@ struct SPFreshIndex {
             }
         }
 
-        // Save norms
         {
             std::ofstream meta_file(meta_path, std::ios::binary | std::ios::trunc);
             if (!meta_file) {
@@ -192,27 +181,25 @@ struct SPFreshIndex {
     int append(const float* vector, size_t dim) {
         std::lock_guard<std::mutex> lock(mtx);
         if (dim != dimension) {
+            std::cerr << "Dimension mismatch: expected " << dimension << ", got " << dim << std::endl;
             return -1;
         }
 
-        // Quantize and compute norm
         std::vector<float> vec(vector, vector + dim);
         std::vector<uint8_t> quantized_vec = quantize_vector(vec);
         float norm = calculate_norm(vec);
 
-        // In-memory
         quantized_vectors.push_back(quantized_vec);
         norms.push_back(norm);
 
-        // Add to write buffer
         write_buffer_vectors.push_back(quantized_vec);
         write_buffer_norms.push_back(norm);
 
-        // Flush buffer if it's full
         if (write_buffer_vectors.size() >= WRITE_BUFFER_SIZE) {
             flush_write_buffer();
         }
         
+        std::cout << "Successfully appended vector with dimension " << dim << std::endl;
         return 0;
     }
     

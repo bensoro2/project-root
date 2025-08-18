@@ -20,21 +20,18 @@ async fn main() -> anyhow::Result<()> {
     let data_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data");
     std::fs::create_dir_all(&data_dir)
         .map_err(|e| anyhow::anyhow!("Failed to create data directory: {}", e))?;
-
     let embedder = Embedder::new()
         .map_err(|e| anyhow::anyhow!("Failed to initialize embedder: {}", e))?;
     #[cfg(feature = "spfresh")]
-    let vector_store = VectorStore::open_or_create(data_dir.join("reviews"))
-        .map_err(|e| anyhow::anyhow!("Failed to open or create vector store: {}", e))?;
+    let index_path = data_dir.join("reviews");
     #[cfg(not(feature = "spfresh"))]
-    let vector_store = VectorStore::open_or_create(data_dir.join("reviews.vectors"))
+    let index_path = data_dir.join("reviews.vectors");
+    let vector_store = VectorStore::open_or_create(index_path)
         .map_err(|e| anyhow::anyhow!("Failed to open or create vector store: {}", e))?;
     let metadata_store = MetadataStore::open_or_create(data_dir.join("reviews.jsonl"))
         .map_err(|e| anyhow::anyhow!("Failed to open or create metadata store: {}", e))?;
-
     let app_state = handlers::AppStateInner::new(embedder, vector_store, metadata_store);
 
-    // Routes grouped under /api
     let api_routes = Router::new()
         .route("/reviews", post(insert_review))
         .route("/reviews/bulk", post(bulk_insert_reviews))
@@ -53,15 +50,10 @@ async fn main() -> anyhow::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
     let listener = TcpListener::bind(addr).await
         .map_err(|e| anyhow::anyhow!("Failed to bind to address {}: {}", addr, e))?;
-    
-    tracing::info!("Listening on http://{}", listener.local_addr()?);
-    
-    // Check if we should insert bitcoin tweets (only when fastembed enabled)
     #[cfg(feature = "fastembed")]
     if env::args().any(|arg| arg == "--insert-bitcoin-tweets") {
         tokio::spawn(async {
             if let Err(e) = bulk_insert::insert_bitcoin_tweets().await {
-                eprintln!("Error inserting bitcoin tweets: {}", e);
             }
         });
     }

@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
 use rand::Rng;
+use std::collections::HashSet;
+use strsim::{normalized_levenshtein, jaro_winkler};
 
 use axum::{extract::State, response::IntoResponse, Json};
 use axum::http::StatusCode;
@@ -62,21 +64,17 @@ pub async fn insert_review(
 
     let text = format!("{} {}", review.review_title.trim(), review.review_body.trim());
     let embedding = state.embedder.embed_default(&text);
-    
     {
         let mut vs = state.vector_store.lock().map_err(|_| AppError::Internal(anyhow::anyhow!("Failed to acquire vector store lock")))?;
         vs.append(&embedding).map_err(|e| AppError::Internal(e))?;
     }
-    
     {
         let mut ms = state.metadata_store.lock().map_err(|_| AppError::Internal(anyhow::anyhow!("Failed to acquire metadata store lock")))?;
         ms.append(&review).map_err(|e| AppError::Internal(e))?;
     }
 
-    // Generate random score between 0.1 and 1.0 for demonstration
     let mut rng = rand::thread_rng();
     let random_score = rng.gen_range(0.1..=1.0);
-    
     Ok((StatusCode::CREATED, Json(serde_json::json!({
         "status": "success",
         "message": "Review created successfully",
@@ -109,15 +107,12 @@ pub async fn bulk_insert_reviews(
     for review in &reviews {
         let text = format!("{} {}", review.review_title.trim(), review.review_body.trim());
         let embedding = state.embedder.embed_default(&text);
-        
         vs.append(&embedding).map_err(|e| AppError::Internal(e))?;
         ms.append(review).map_err(|e| AppError::Internal(e))?;
     }
 
-    // Generate random score between 0.1 and 1.0 for demonstration
     let mut rng = rand::thread_rng();
     let random_score = rng.gen_range(0.1..=1.0);
-    
     Ok(Json(serde_json::json!({
         "status": "success",
         "message": "Reviews created successfully",
@@ -158,39 +153,53 @@ pub async fn search_reviews(
 ) -> Result<impl IntoResponse, AppError> {
     query.validate()?;
 
-    // (query validated below)
-#[cfg(feature = "spfresh")]
-let embedding = state.embedder.embed(&query.query.trim());
-#[cfg(not(feature = "spfresh"))]
-let embedding = state.embedder.embed_default(&query.query.trim());
+    let embedding = state.embedder.embed_default(&query.query.trim());
+
+    let internal_k = std::cmp::min(query.top_k * 10, 200);
 
     let ids_scores = {
         let vs = state.vector_store.lock().map_err(|_| AppError::Internal(anyhow::anyhow!("Failed to acquire vector store lock")))?;
-        tracing::info!(query = %query.query, embedding_length = embedding.len(), "Starting vector search");
-        let result = vs.search(&embedding, query.top_k).map_err(|e| AppError::Internal(e))?;
-        tracing::info!(query = %query.query, result_count = result.len(), "Vector search completed");
+        let result = vs.search(&embedding, internal_k).map_err(|e| AppError::Internal(e))?;
         result
     };
 
-    let mut results = Vec::new();
+    let mut combined_results: Vec<(usize, f32, Review)> = Vec::new();
     {
         let ms = state.metadata_store.lock().map_err(|_| AppError::Internal(anyhow::anyhow!("Failed to acquire metadata store lock")))?;
-        for (idx, score) in &ids_scores {
-            match ms.get_by_index::<Review>(*idx) {
-                Ok(review) => {
-                    let title = review.review_title.clone();
-                    results.push(SearchResult { score: *score, review });
-                    tracing::debug!(index = idx, title = %title, "Metadata retrieved");
-                },
-                Err(_) => {
-                    // Inconsistent state: vector exists but metadata missing
-                    // Skip this entry but log for debugging
-                    tracing::warn!(missing_metadata_index = idx, "Vector without metadata, skipped");
-                }
+        for (idx, vec_score) in &ids_scores {
+            if let Ok(review) = ms.get_by_index::<Review>(*idx) {
+                let text = format!("{} {}", review.review_title, review.review_body);
+                let query_lc = query.query.to_lowercase();
+                let text_lc = text.to_lowercase();
+                let lev = normalized_levenshtein(&query_lc, &text_lc) as f32;
+                let jw = jaro_winkler(&query_lc, &text_lc) as f32;
+                let char_sim = (lev + jw) / 2.0;
+                // Token-level Dice coefficient
+                let dice = {
+                    let set_q: HashSet<&str> = query_lc.split_whitespace().collect();
+                    let set_t: HashSet<&str> = text_lc.split_whitespace().collect();
+                    if set_q.is_empty() || set_t.is_empty() {
+                        0.0
+                    } else {
+                        (2.0 * set_q.intersection(&set_t).count() as f32) / (set_q.len() as f32 + set_t.len() as f32)
+                    }
+                };
+                // Normalize vector score (-1..1) to 0..1
+                let vec_norm = ((*vec_score + 1.0) / 2.0) as f32;
+                // Weighted combination (tuneable)
+                let combined: f32 = 0.5 * char_sim + 0.2 * dice + 0.3 * vec_norm;
+                combined_results.push((*idx, combined, review));
             }
         }
-        tracing::info!(found_results = results.len(), "Search completed with metadata mapping");
     }
+
+    combined_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    let results: Vec<SearchResult> = combined_results
+        .into_iter()
+        .take(query.top_k)
+        .map(|(_, score, review)| SearchResult { score, review })
+        .collect();
 
     Ok(Json(results))
 }

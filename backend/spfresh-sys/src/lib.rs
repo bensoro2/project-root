@@ -83,7 +83,6 @@ impl Index {
         if result == 0 {
             Ok(result_indices.into_iter().zip(result_scores.into_iter()).collect())
         } else if result == -1 {
-            // Invalid parameters or empty index -> return empty vec instead of error
             Ok(Vec::new())
         } else {
             Err(format!("Search failed: error code {}", result))

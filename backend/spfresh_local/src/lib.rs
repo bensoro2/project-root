@@ -69,7 +69,7 @@ mod fallback {
             }
             Ok(Self {
                 path: p.to_path_buf(),
-                dim: 768,
+                dim: 128,
             })
         }
 

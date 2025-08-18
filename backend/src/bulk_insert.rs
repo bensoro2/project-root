@@ -24,11 +24,9 @@ pub async fn insert_bitcoin_tweets() -> Result<(), Box<dyn std::error::Error>> {
     
     let client = reqwest::Client::new();
     let url = "http://localhost:8000/reviews/bulk";
-    
     let mut batch = Vec::new();
     let batch_size = 4000;
     let mut count = 0;
-    
     for result in csv_reader.deserialize() {
         let tweet: Tweet = result?;
         
@@ -38,25 +36,18 @@ pub async fn insert_bitcoin_tweets() -> Result<(), Box<dyn std::error::Error>> {
             product_id: tweet.id.clone(),
             review_rating: 3,
         };
-        
         batch.push(review);
         count += 1;
-        
         if batch.len() >= batch_size {
             let response = client
                 .post(url)
                 .json(&batch)
                 .send()
                 .await?;
-                
             if response.status().is_success() {
-                println!("Successfully inserted batch of {} tweets", batch_size);
             } else {
-                println!("Failed to insert batch: {}", response.status());
             }
-            
             batch.clear();
-            
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
     }
@@ -67,14 +58,10 @@ pub async fn insert_bitcoin_tweets() -> Result<(), Box<dyn std::error::Error>> {
             .json(&batch)
             .send()
             .await?;
-            
         if response.status().is_success() {
-            println!("Successfully inserted final batch of {} tweets", batch.len());
         } else {
-            println!("Failed to insert final batch: {}", response.status());
         }
     }
     
-    println!("Completed processing {} tweets", count);
     Ok(())
 }
