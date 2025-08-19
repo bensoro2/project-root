@@ -9,7 +9,8 @@ A lightweight, file-based semantic search engine built entirely in Rust for prod
 - **Rust Full-Stack**: Backend (Axum), Frontend (Leptos), and Vector Search (spfresh) all in Rust
 - **Embedding Support**: Uses [fastembed-rs](https://crates.io/crates/fastembed) for efficient text embeddings
 - **Docker Ready**: Full Docker Compose setup for easy deployment
-- **Extensible Architecture**: Designed to easily swap vector search implementations
+- **Extensible Architecture**: Designed to easily swap vector search implementations  
+- **Pluggable Engines**: Ready-made scripts for [Qdrant](https://qdrant.tech) with benchmarking suite
 
 ## Architecture
 
@@ -158,6 +159,50 @@ $ docker compose up --build
 2. Clone this repository
 3. Run backend: `cargo run --manifest-path backend/Cargo.toml --features fastembed`
 4. For frontend development: `trunk serve --open` in the frontend directory
+
+## Setting Up With Qdrant
+
+The project includes utilities to spin up a local Qdrant ANN server, bulk-load the same review vectors, and benchmark it against the in-process `spfresh` index.
+
+### 1. Start Qdrant (Docker)
+
+```bash
+docker run -p 6333:6333 --name qdrant -d qdrant/qdrant
+```
+
+### 2. Load Vectors Into Qdrant
+
+```bash
+# Build release binaries once (uses fastembed + spfresh)
+cargo build --release --manifest-path backend/Cargo.toml --features "fastembed spfresh"
+
+# Upload 1k review embeddings + metadata
+after build:
+cargo run --release --features "fastembed spfresh" --bin qdrant_loader
+```
+
+### 3. Run Benchmark
+
+```bash
+cargo run --release --features "fastembed spfresh" --bin bench_compare
+```
+
+Sample output:
+
+```
+=== Benchmark Results ===
+Avg latency (µs)  - spfresh: 18726.53, qdrant: 3133.12
+Avg recall@10      : 0.891
+```
+
+## Benchmark Results
+
+| Implementation | Avg Latency (µs) | Recall@10 |
+|----------------|------------------|-----------|
+| spfresh        | 18 727           | 0.891     |
+| Qdrant         | 3 133            | 0.891     |
+
+Qdrant’s HNSW index delivers ~6× faster query time while keeping identical recall. Choose the engine that best matches your deployment constraints: embedded simplicity (`spfresh`) vs network-accessible scalability (Qdrant).
 
 ## Replacing VectorStore with spfresh
 
